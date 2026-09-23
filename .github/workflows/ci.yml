@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: gofmt check
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "unformatted files:"; echo "$out"; exit 1
+          fi
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test ./... -count=1
+
+  e2e:
+    name: Kind migration e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ratify-migrate-e2e
+      - name: Run migration e2e
+        env:
+          CREATE_CLUSTER: "false" # cluster provided by kind-action
+        run: ./test/e2e/run.sh

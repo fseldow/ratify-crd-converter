@@ -1,0 +1,57 @@
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: Store
+metadata:
+  name: store-oras
+spec:
+  name: oras
+  parameters:
+    cacheEnabled: true
+    cosignEnabled: true
+    ttl: 10
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: KeyManagementProvider
+metadata:
+  name: ratify-notation-inline-cert-0
+spec:
+  type: inline
+  parameters:
+    contentType: certificate
+    value: |
+      -----BEGIN CERTIFICATE-----
+      SAMPLEBASE64==
+      -----END CERTIFICATE-----
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: Verifier
+metadata:
+  name: verifier-notation
+spec:
+  name: notation
+  artifactTypes: application/vnd.cncf.notary.signature
+  parameters:
+    verificationCertStores:
+      ca:
+        ca-certs:
+          - ratify-notation-inline-cert-0
+    trustPolicyDoc:
+      version: "1.0"
+      trustPolicies:
+        - name: default
+          registryScopes:
+            - "myregistry.io/prod"
+          signatureVerification:
+            level: strict
+          trustStores:
+            - ca:ca-certs
+          trustedIdentities:
+            - "*"
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: Policy
+metadata:
+  name: ratify-policy
+spec:
+  type: rego-policy
+  parameters:
+    passthroughEnabled: false

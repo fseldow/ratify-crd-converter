@@ -1,0 +1,14 @@
+# Binaries
+/ratify-convert
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+/bin/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

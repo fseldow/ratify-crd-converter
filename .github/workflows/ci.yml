@@ -30,7 +30,7 @@ jobs:
         run: go test ./... -count=1
 
   e2e:
-    name: Kind migration e2e
+    name: Kind CRD e2e (lightweight)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,3 +46,21 @@ jobs:
         env:
           CREATE_CLUSTER: "false" # cluster provided by kind-action
         run: ./test/e2e/run.sh
+
+  e2e-coexistence:
+    name: Kind coexistence e2e (full stack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ratify-coexist-e2e
+      - name: Run coexistence e2e (Gatekeeper + Ratify v1 + v2)
+        env:
+          CREATE_CLUSTER: "false" # cluster provided by kind-action
+        run: ./test/e2e/run-coexistence.sh

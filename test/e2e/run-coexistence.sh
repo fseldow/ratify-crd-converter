@@ -39,9 +39,14 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; dump; exit 1; }
 
 dump() {
   echo "----- debug: pods -----" >&2
-  kubectl get pods -n "$GK_NS" 2>&1 | sed 's/^/  /' >&2 || true
+  kubectl get pods -n "$GK_NS" -o wide 2>&1 | sed 's/^/  /' >&2 || true
   echo "----- debug: providers -----" >&2
   kubectl get providers.externaldata.gatekeeper.sh 2>&1 | sed 's/^/  /' >&2 || true
+  echo "----- debug: v2 provider describe -----" >&2
+  kubectl describe deploy/ratify-gatekeeper-provider -n "$GK_NS" 2>&1 | tail -30 | sed 's/^/  /' >&2 || true
+  echo "----- debug: v2 provider pod events/logs -----" >&2
+  kubectl describe pods -n "$GK_NS" -l app.kubernetes.io/name=ratify-gatekeeper-provider 2>&1 | grep -A20 -i events | sed 's/^/  /' >&2 || true
+  kubectl logs -n "$GK_NS" -l app.kubernetes.io/name=ratify-gatekeeper-provider --tail=40 2>&1 | sed 's/^/  /' >&2 || true
 }
 
 cleanup() {
@@ -75,6 +80,9 @@ helm install gatekeeper gatekeeper/gatekeeper \
   --set enableExternalData=true \
   --set validatingWebhookTimeoutSeconds=5 \
   --set mutatingWebhookTimeoutSeconds=2 \
+  --set replicas=1 \
+  --set audit.resources.requests.cpu=50m \
+  --set controllerManager.resources.requests.cpu=50m \
   --wait --timeout 5m
 
 log "Installing Ratify v1 ($RATIFY_V1_CHART, appVersion v1.4.6)"
@@ -83,7 +91,7 @@ helm install ratify ratify/ratify \
   --namespace "$GK_NS" \
   --set featureFlags.RATIFY_CERT_ROTATION=true \
   --set provider.enableMutation=false \
-  --atomic --timeout 5m
+  --atomic --timeout 8m
 
 log "Installing Ratify v2 ($RATIFY_V2_CHART) alongside v1"
 helm install ratify-gatekeeper-provider ratify/ratify-gatekeeper-provider \
@@ -91,7 +99,7 @@ helm install ratify-gatekeeper-provider ratify/ratify-gatekeeper-provider \
   --namespace "$GK_NS" \
   --set image.tag="$RATIFY_V2_TAG" \
   -f "$SCRIPT_DIR/v2-values.yaml" \
-  --atomic --timeout 5m
+  --wait --timeout 8m || fail "v2 install failed (see debug below)"
 
 log "Waiting for both controllers to become Available"
 kubectl rollout status deploy/ratify -n "$GK_NS" --timeout=180s

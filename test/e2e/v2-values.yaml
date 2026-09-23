@@ -5,6 +5,16 @@
 provider:
   disableMutation: true
 
+# Keep resource requests small so the provider schedules on constrained CI
+# runners (default request is 600m CPU / 512Mi).
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
 executor:
   scopes:
     - "*"

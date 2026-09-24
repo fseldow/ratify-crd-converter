@@ -78,9 +78,10 @@ go run ./cmd/ratify-convert -f testdata/v1_bundle.yaml
 
 Two kind-based suites run in CI (`.github/workflows/ci.yml`):
 
-- **Lightweight CRD e2e** (`test/e2e/run.sh`) — installs both the v1 and v2 CRDs,
-  applies the v1 sample CRs, migrates them, and validates the generated v2
-  manifests via server-side apply against the installed v2 CRD schema.
+- **Lightweight CRD e2e** (`test/e2e/run.sh`) — installs both the v1 and v2 CRDs
+  (fetched from the upstream Ratify repo at pinned tags, so there are no vendored
+  copies to drift), applies the v1 sample CRs, migrates them, and validates the
+  generated v2 manifests via server-side apply against the installed v2 CRD schema.
 - **Full coexistence e2e** (`test/e2e/run-coexistence.sh`) — installs Gatekeeper,
   Ratify v1 (chart `ratify`) and Ratify v2 (chart `ratify-gatekeeper-provider`)
   into the same cluster, proving the two controllers coexist as independent

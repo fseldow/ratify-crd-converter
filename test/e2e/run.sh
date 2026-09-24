@@ -3,7 +3,9 @@
 #
 # Flow:
 #   1. (optional) create a kind cluster
-#   2. install BOTH Ratify v1 (config.ratify.deislabs.io) and v2 (config.ratify.sh) CRDs
+#   2. install BOTH Ratify v1 (config.ratify.deislabs.io) and v2 (config.ratify.sh)
+#      CRDs, fetched directly from the upstream repo at pinned tags (single
+#      source of truth; no vendored copies to drift out of sync)
 #   3. apply the v1 sample CRs   -> proves they are valid v1 resources
 #   4. build ratify-convert and migrate the v1 CRs -> v2 Executor manifests
 #   5. apply the generated v2 manifests to the cluster
@@ -16,12 +18,12 @@
 #                         CI uses helm/kind-action to provide the cluster)
 #   CLUSTER_NAME=ratify-migrate-e2e
 #   KEEP_CLUSTER=false    keep the cluster after the run
+#   RATIFY_V1_TAG=v1.4.6         upstream tag for the v1 CRDs
+#   RATIFY_V2_TAG=v2.0.0-beta.2  upstream tag for the v2 CRDs
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CRDS_V1="$SCRIPT_DIR/crds/v1"
-CRDS_V2="$SCRIPT_DIR/crds/v2"
 MANIFESTS="$SCRIPT_DIR/manifests"
 OUT_DIR="$(mktemp -d)"
 NS="ratify-e2e"
@@ -29,6 +31,28 @@ NS="ratify-e2e"
 CREATE_CLUSTER="${CREATE_CLUSTER:-false}"
 CLUSTER_NAME="${CLUSTER_NAME:-ratify-migrate-e2e}"
 KEEP_CLUSTER="${KEEP_CLUSTER:-false}"
+
+# CRDs are pulled from the upstream Ratify repo at these pinned tags rather than
+# vendored into this repo, so the schema under test always matches a real release.
+RATIFY_V1_TAG="${RATIFY_V1_TAG:-v1.4.6}"
+RATIFY_V2_TAG="${RATIFY_V2_TAG:-v2.0.0-beta.2}"
+RAW="https://raw.githubusercontent.com/ratify-project/ratify"
+
+V1_CRDS=(
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_stores.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_verifiers.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_policies.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_keymanagementproviders.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_certificatestores.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_namespacedstores.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_namespacedverifiers.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_namespacedpolicies.yaml"
+  "$RAW/$RATIFY_V1_TAG/config/crd/bases/config.ratify.deislabs.io_namespacedkeymanagementproviders.yaml"
+)
+V2_CRDS=(
+  "$RAW/$RATIFY_V2_TAG/deployments/ratify-gatekeeper-provider/crds/executors.config.ratify.sh.yaml"
+  "$RAW/$RATIFY_V2_TAG/deployments/ratify-gatekeeper-provider/crds/namespacedexecutors.config.ratify.sh.yaml"
+)
 
 log()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 pass() { printf '\033[1;32m✔ %s\033[0m\n' "$*"; }
@@ -53,11 +77,11 @@ fi
 
 kubectl cluster-info >/dev/null || fail "no reachable cluster (set CREATE_CLUSTER=true or configure kubeconfig)"
 
-log "Installing Ratify v1 CRDs (config.ratify.deislabs.io)"
-kubectl apply -f "$CRDS_V1"
+log "Installing Ratify v1 CRDs (config.ratify.deislabs.io @ $RATIFY_V1_TAG)"
+for url in "${V1_CRDS[@]}"; do kubectl apply -f "$url"; done
 
-log "Installing Ratify v2 CRDs (config.ratify.sh)"
-kubectl apply -f "$CRDS_V2"
+log "Installing Ratify v2 CRDs (config.ratify.sh @ $RATIFY_V2_TAG)"
+for url in "${V2_CRDS[@]}"; do kubectl apply -f "$url"; done
 
 kubectl wait --for=condition=Established --timeout=60s \
   crd/stores.config.ratify.deislabs.io \

@@ -6,12 +6,33 @@ import (
 	"github.com/fseldow/ratify-crd-converter/internal/report"
 )
 
-// convertPolicy maps a v1 Policy to a v2 PolicyEnforcerOptions. v2 allows only
-// one policy enforcer; callers pass the chosen policy.
-func convertPolicy(p *v1.Policy, rep *report.Reporter) *v2.PolicyEnforcerOptions {
+// buildPolicyEnforcer produces the v2 policyEnforcer. v2 ships a single policy
+// enforcer implementation ("threshold-policy") whose parameters reference each
+// verifier by name via policy.rules[].verifierName. The v1 policy types
+// (rego-policy / config-policy) and their parameters have no v2 equivalent, so
+// we synthesize a threshold policy that references every verifier in the group.
+// The original v1 policy type is surfaced as a warning so the user can review.
+func buildPolicyEnforcer(policies []*v1.Policy, verifierNames []string, group string, rep *report.Reporter) *v2.PolicyEnforcerOptions {
+	if p := choosePolicy(policies, group, rep); p != nil && p.Spec.Type != "" {
+		rep.Infof("Policy["+group+"]", "v1 policy type %q mapped to v2 threshold-policy (v1 policy parameters are not portable)", p.Spec.Type)
+	}
+	if len(verifierNames) == 0 {
+		return nil
+	}
+
+	rules := make([]any, 0, len(verifierNames))
+	for _, n := range verifierNames {
+		rules = append(rules, map[string]any{"verifierName": n})
+	}
+	raw, err := valueToRaw(map[string]any{
+		"policy": map[string]any{"rules": rules},
+	})
+	if err != nil {
+		return nil
+	}
 	return &v2.PolicyEnforcerOptions{
-		Type:       p.Spec.Type,
-		Parameters: p.Spec.Parameters,
+		Type:       "threshold-policy",
+		Parameters: raw,
 	}
 }
 

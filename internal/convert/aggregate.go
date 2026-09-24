@@ -111,8 +111,13 @@ func buildSpec(g *group, idx *certIndex, opts Options, groupKey string, rep *rep
 		}
 		spec.Verifiers = append(spec.Verifiers, vo)
 	}
-	if p := choosePolicy(g.policies, groupKey, rep); p != nil {
-		spec.PolicyEnforcer = convertPolicy(p, rep)
+
+	verifierNames := make([]string, 0, len(spec.Verifiers))
+	for _, vo := range spec.Verifiers {
+		verifierNames = append(verifierNames, vo.Name)
+	}
+	if pe := buildPolicyEnforcer(g.policies, verifierNames, groupKey, rep); pe != nil {
+		spec.PolicyEnforcer = pe
 	}
 
 	scopes, _ := extractScopes(g.verifiers, groupKey, rep)
@@ -121,10 +126,19 @@ func buildSpec(g *group, idx *certIndex, opts Options, groupKey string, rep *rep
 			scopes = opts.DefaultScopes
 		} else {
 			scopes = wildcardScope
-			rep.Warnf("Executor["+groupKey+"]", "no scope derivable from verifiers; defaulting to [\"*\"] (use --scope to override)")
+			rep.Warnf("Executor["+groupKey+"]", "no scope derivable from verifiers; defaulting to [\"*\"] — but v2 rejects a bare \"*\": pass --scope with a registry (e.g. myregistry.io) or a \"*.domain\" wildcard")
 		}
 	}
 	spec.Scopes = scopes
+
+	// v2's scoped executor rejects a bare "*" at runtime (wildcards must be
+	// "*.domain"). v1 registryScopes commonly used "*", so flag it explicitly.
+	for _, sc := range scopes {
+		if sc == "*" {
+			rep.Warnf("Executor["+groupKey+"]", "scope \"*\" is invalid in v2 (a wildcard must start with \"*.\"): replace it with a concrete registry or a \"*.domain\" scope before applying")
+			break
+		}
+	}
 
 	if len(spec.Stores) == 0 {
 		rep.Warnf("Executor["+groupKey+"]", "no stores: v2 Executor requires at least one store")

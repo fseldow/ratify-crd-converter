@@ -25,3 +25,25 @@ func scopeGroup(namespace string) string {
 	}
 	return namespace
 }
+
+// stringSet is a small insertion-ordered, de-duplicating string set.
+type stringSet struct {
+	seen    map[string]bool
+	ordered []string
+}
+
+func newStringSet() *stringSet {
+	return &stringSet{seen: map[string]bool{}}
+}
+
+func (s *stringSet) add(v string) {
+	if v == "" || s.seen[v] {
+		return
+	}
+	s.seen[v] = true
+	s.ordered = append(s.ordered, v)
+}
+
+func (s *stringSet) slice() []string {
+	return s.ordered
+}

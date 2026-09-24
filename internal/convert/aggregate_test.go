@@ -29,6 +29,13 @@ func TestAggregateBundle(t *testing.T) {
 	if e.Spec.Stores[0].Type != "registry-store" {
 		t.Errorf("store type: want registry-store (aliased from oras), got %q", e.Spec.Stores[0].Type)
 	}
+	storeParams := string(e.Spec.Stores[0].Parameters.Raw)
+	if !contains(storeParams, "credential") || !contains(storeParams, "static") {
+		t.Errorf("store should inject credential.provider=static, got: %s", storeParams)
+	}
+	if contains(storeParams, "cacheEnabled") || contains(storeParams, "ttl") {
+		t.Errorf("v1-only store knobs should be dropped, got: %s", storeParams)
+	}
 
 	if got := len(e.Spec.Verifiers); got != 1 {
 		t.Fatalf("want 1 verifier, got %d", got)
@@ -44,12 +51,22 @@ func TestAggregateBundle(t *testing.T) {
 	if contains(params, "verificationCertStores") {
 		t.Errorf("verificationCertStores should be stripped, got: %s", params)
 	}
-	if !contains(params, "artifactTypes") {
-		t.Errorf("artifactTypes should be folded into params, got: %s", params)
+	if contains(params, "trustPolicyDoc") {
+		t.Errorf("notation trustPolicyDoc should be stripped, got: %s", params)
+	}
+	if contains(params, "artifactTypes") {
+		t.Errorf("artifactTypes should be dropped for notation, got: %s", params)
+	}
+	if !contains(params, "scopes") || !contains(params, "trustedIdentities") {
+		t.Errorf("notation params should carry scopes + trustedIdentities, got: %s", params)
 	}
 
-	if e.Spec.PolicyEnforcer == nil || e.Spec.PolicyEnforcer.Type != "rego-policy" {
-		t.Errorf("policyEnforcer: %+v", e.Spec.PolicyEnforcer)
+	if e.Spec.PolicyEnforcer == nil || e.Spec.PolicyEnforcer.Type != "threshold-policy" {
+		t.Fatalf("policyEnforcer should be threshold-policy: %+v", e.Spec.PolicyEnforcer)
+	}
+	polParams := string(e.Spec.PolicyEnforcer.Parameters.Raw)
+	if !contains(polParams, "verifierName") || !contains(polParams, "verifier-notation") {
+		t.Errorf("threshold policy should reference verifier by name, got: %s", polParams)
 	}
 
 	if len(e.Spec.Scopes) != 1 || e.Spec.Scopes[0] != "myregistry.io/prod" {

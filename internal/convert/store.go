@@ -19,8 +19,21 @@ func StoreAlias(v1Name string) string {
 	return v1Name
 }
 
-// convertStore maps a v1 Store to a v2 StoreOptions. address/source are dropped
-// with a warning only when non-empty (built-in plugins leave them empty).
+// v1 oras store parameter keys that have no equivalent on the v2 registry-store
+// and must not be passed through (the v2 options struct rejects unknown fields
+// only loosely, but keeping them is misleading).
+var droppedStoreParams = []string{"cacheEnabled", "cosignEnabled", "ttl", "useHttp"}
+
+// convertStore maps a v1 Store to a v2 StoreOptions.
+//
+//   - address/source are dropped (warned only when non-empty; built-in plugins
+//     leave them empty).
+//   - The v2 registry-store REQUIRES a credential provider
+//     (parameters.credential.provider); v1 oras had no such field, so we inject
+//     `credential: {provider: static}` (anonymous/ambient auth) unless the v1
+//     parameters already carry a credential block.
+//   - v1-only oras knobs (cacheEnabled/cosignEnabled/ttl) are dropped since the
+//     v2 registry-store does not model them.
 func convertStore(s *v1.Store, rep *report.Reporter) (*v2.StoreOptions, error) {
 	res := resourceID(v1.KindStore, s.Namespace, s.Name)
 	if s.Spec.Address != "" {
@@ -29,8 +42,30 @@ func convertStore(s *v1.Store, rep *report.Reporter) (*v2.StoreOptions, error) {
 	if s.Spec.Source != nil {
 		rep.Warnf(res, "spec.source (dynamic plugin %q) dropped: v2 has no OCI plugin download; port the plugin to the v2 Go model", s.Spec.Source.Artifact)
 	}
+
+	params, err := rawToMap(s.Spec.Parameters)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, k := range droppedStoreParams {
+		if _, ok := params[k]; ok {
+			delete(params, k)
+			rep.Infof(res, "parameters.%s dropped: not modeled by the v2 registry-store", k)
+		}
+	}
+
+	if _, ok := params["credential"]; !ok {
+		params["credential"] = map[string]any{"provider": "static"}
+		rep.Infof(res, "injected credential.provider=static (v1 store had no credential config; v2 registry-store requires one)")
+	}
+
+	raw, err := mapToRaw(params)
+	if err != nil {
+		return nil, err
+	}
 	return &v2.StoreOptions{
 		Type:       StoreAlias(s.Spec.Name),
-		Parameters: s.Spec.Parameters,
+		Parameters: raw,
 	}, nil
 }

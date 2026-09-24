@@ -14,6 +14,8 @@ set of v1 CRs and aggregates them by scope (cluster, or one per namespace) into
 
 ## Usage
 
+### From files
+
 ```bash
 # A directory (recurses over all .yaml files)
 ratify-convert -f ./v1-manifests/ -o executor.yaml
@@ -22,13 +24,35 @@ ratify-convert -f ./v1-manifests/ -o executor.yaml
 ratify-convert -f store.yaml -f verifier.yaml -f kmp.yaml --scope "myregistry.io/*"
 ```
 
+### Directly against a cluster (no intermediate YAML)
+
+`--from-cluster` reads every v1 CR from the current kube-context, and `--apply`
+writes the migrated v2 `Executor` / `NamespacedExecutor` back via server-side
+apply — so you can migrate in place without exporting YAML by hand.
+
+```bash
+# Read all v1 CRs from the cluster and preview the v2 output
+ratify-convert --from-cluster -o -
+
+# Read from the cluster and apply the migrated v2 in place
+ratify-convert --from-cluster --apply
+
+# Safe preview: server-side dry-run (nothing is persisted)
+ratify-convert --from-cluster --apply --dry-run
+```
+
 | Flag | Description |
 |---|---|
 | `-f, --file` | Input file or directory (repeatable) |
-| `-o, --output` | Output file (default: stdout) |
+| `-k, --from-cluster` | Read all v1 CRs directly from the cluster instead of files |
+| `--apply` | Apply the generated v2 Executor(s) to the cluster (server-side apply) |
+| `--dry-run` | With `--apply`, use server-side dry-run (nothing persisted) |
+| `--kubeconfig` | Path to kubeconfig (default: `$KUBECONFIG` or `~/.kube/config`) |
+| `-o, --output` | Output file, or `-` for stdout (default: stdout unless `--apply`) |
 | `--scope` | Fallback scopes when none can be derived from verifiers |
 | `--concurrency` | `Executor.spec.concurrency` (0 = v2 default) |
 | `--name` | `metadata.name` for generated executors |
+
 
 ## Mapping summary
 
@@ -60,6 +84,7 @@ cmd/ratify-convert/   CLI (cobra)
 internal/apis/v1beta1  source types
 internal/apis/v2beta1  target types
 internal/loader        multi-document YAML -> Bundle
+internal/cluster       read v1 CRs from / apply v2 to a live cluster (client-go)
 internal/convert       converters + reference resolution + scope extraction + aggregator
 internal/report        diagnostics collection
 test/e2e/              kind-based end-to-end tests

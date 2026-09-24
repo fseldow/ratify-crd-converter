@@ -119,13 +119,18 @@ kubectl apply -f "$MANIFESTS/v1-cluster.yaml"
 kubectl apply -f "$MANIFESTS/v1-namespaced.yaml"
 pass "v1 CRs accepted by the live v1 CRDs"
 
-log "Migrating v1 CRs -> v2 with ratify-convert"
+log "Migrating v1 CRs -> v2 with ratify-convert (in place: --from-cluster --apply)"
 ( cd "$ROOT_DIR" && go build -o "$OUT_DIR/ratify-convert" ./cmd/ratify-convert )
-"$OUT_DIR/ratify-convert" -f "$MANIFESTS/v1-cluster.yaml" -o "$OUT_DIR/executor.yaml" --name executor-migrated
-cat "$OUT_DIR/executor.yaml"
 
-log "Applying migrated v2 Executor against the running v2 controller"
-kubectl apply --server-side -f "$OUT_DIR/executor.yaml"
+# First a server-side dry-run reading straight from the cluster (no YAML files).
+"$OUT_DIR/ratify-convert" --from-cluster --apply --dry-run --name executor-migrated
+pass "dry-run: v1 CRs read from cluster and migrated v2 validated server-side"
+
+# Then apply for real, again reading directly from the cluster.
+"$OUT_DIR/ratify-convert" --from-cluster --apply --name executor-migrated
+
+log "Verifying the migrated Executor was applied to the running v2 controller"
+kubectl get executor executor-migrated -o yaml | sed -n '1,40p'
 
 # Give the v2 controller a moment to reconcile the new Executor.
 kubectl wait --for=jsonpath='{.status.succeeded}'=true executor/executor-migrated --timeout=60s \
@@ -139,6 +144,11 @@ kubectl wait --for=jsonpath='{.status.succeeded}'=true executor/executor-migrate
 
 api="$(kubectl get executor executor-migrated -o jsonpath='{.apiVersion}')"
 [[ "$api" == "config.ratify.sh/v2beta1" ]] || fail "migrated Executor apiVersion=$api"
+
+# The namespaced CRs should have produced a NamespacedExecutor in their namespace.
+kubectl get namespacedexecutor executor-migrated -n "$APP_NS" -o jsonpath='{.apiVersion}' >/dev/null 2>&1 \
+  && pass "migrated NamespacedExecutor present in namespace $APP_NS" \
+  || echo "note: no NamespacedExecutor in $APP_NS (check namespaced v1 CRs)"
 
 log "COEXISTENCE E2E PASSED"
 echo "Summary:"

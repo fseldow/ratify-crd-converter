@@ -17,11 +17,11 @@ resources:
 
 executor:
   scopes:
-    - "*"
+    - "ghcr.io/example/app"
 
 notation:
   scopes:
-    - "*"
+    - "ghcr.io/example/app"
   trustedIdentities:
     - "*"
   certs:

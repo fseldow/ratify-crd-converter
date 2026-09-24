@@ -115,8 +115,19 @@ pass "both providers coexist: ratify-provider (v1) + ratify-gatekeeper-provider 
 
 log "Applying v1 sample CRs"
 kubectl create namespace "$APP_NS" --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f "$MANIFESTS/v1-cluster.yaml"
-kubectl apply -f "$MANIFESTS/v1-namespaced.yaml"
+
+# The v1 Ratify chart auto-creates default CRs (store-oras, verifier-notation,
+# verifier-cosign, ratify-policy) that share names with our samples. Applying
+# our samples on top would MERGE fields (kubectl apply) and corrupt them, and
+# --from-cluster would then read the polluted CRs. Delete the chart defaults
+# first so the cluster holds only our clean sample CRs.
+kubectl delete stores.config.ratify.deislabs.io --all --ignore-not-found
+kubectl delete verifiers.config.ratify.deislabs.io --all --ignore-not-found
+kubectl delete policies.config.ratify.deislabs.io --all --ignore-not-found
+kubectl delete keymanagementproviders.config.ratify.deislabs.io --all --ignore-not-found
+
+kubectl create -f "$MANIFESTS/v1-cluster.yaml"
+kubectl create -f "$MANIFESTS/v1-namespaced.yaml"
 pass "v1 CRs accepted by the live v1 CRDs"
 
 log "Migrating v1 CRs -> v2 with ratify-convert (in place: --from-cluster --apply)"
@@ -129,26 +140,33 @@ pass "dry-run: v1 CRs read from cluster and migrated v2 validated server-side"
 # Then apply for real, again reading directly from the cluster.
 "$OUT_DIR/ratify-convert" --from-cluster --apply --name executor-migrated
 
-log "Verifying the migrated Executor was applied to the running v2 controller"
+log "Verifying the migrated Executor reconciles on the running v2 controller"
 kubectl get executor executor-migrated -o yaml | sed -n '1,40p'
 
-# Give the v2 controller a moment to reconcile the new Executor.
-kubectl wait --for=jsonpath='{.status.succeeded}'=true executor/executor-migrated --timeout=60s \
-  && pass "migrated Executor reconciled: status.succeeded=true" \
+# The migrated Executor must reconcile to succeeded=true against the live v2
+# controller — this is the strongest proof that the conversion is not just
+# schema-valid but functionally correct (credentials, threshold policy rules,
+# notation scopes, etc). The chart's own bootstrap executor uses a different,
+# non-overlapping repository scope so the two cluster-scoped executors coexist.
+kubectl wait --for=jsonpath='{.status.succeeded}'=true executor/executor-migrated --timeout=90s \
   || {
-       st="$(kubectl get executor executor-migrated -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
-       err="$(kubectl get executor executor-migrated -o jsonpath='{.status.briefError}' 2>/dev/null || true)"
-       echo "note: migrated Executor status.succeeded=${st:-<none>} briefError=${err:-<none>}"
-       pass "migrated Executor accepted by live v2 controller (reconcile status logged above)"
+       echo "migrated Executor did not reach succeeded=true:"
+       kubectl get executor executor-migrated -o jsonpath='{.status}{"\n"}' 2>/dev/null || true
+       fail "migrated Executor failed to reconcile"
      }
+pass "migrated cluster Executor reconciled: status.succeeded=true"
 
 api="$(kubectl get executor executor-migrated -o jsonpath='{.apiVersion}')"
 [[ "$api" == "config.ratify.sh/v2beta1" ]] || fail "migrated Executor apiVersion=$api"
 
-# The namespaced CRs should have produced a NamespacedExecutor in their namespace.
-kubectl get namespacedexecutor executor-migrated -n "$APP_NS" -o jsonpath='{.apiVersion}' >/dev/null 2>&1 \
-  && pass "migrated NamespacedExecutor present in namespace $APP_NS" \
-  || echo "note: no NamespacedExecutor in $APP_NS (check namespaced v1 CRs)"
+# The namespaced CRs should have produced a NamespacedExecutor that also reconciles.
+kubectl wait --for=jsonpath='{.status.succeeded}'=true namespacedexecutor/executor-migrated -n "$APP_NS" --timeout=90s \
+  || {
+       echo "migrated NamespacedExecutor did not reach succeeded=true:"
+       kubectl get namespacedexecutor executor-migrated -n "$APP_NS" -o jsonpath='{.status}{"\n"}' 2>/dev/null || true
+       fail "migrated NamespacedExecutor failed to reconcile"
+     }
+pass "migrated NamespacedExecutor reconciled: status.succeeded=true"
 
 log "COEXISTENCE E2E PASSED"
 echo "Summary:"

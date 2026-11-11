@@ -1,0 +1,94 @@
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: KeyManagementProvider
+metadata:
+  name: kmp-akv-ca
+spec:
+  type: azurekeyvault
+  parameters:
+    vaultURI: https://MyVault.vault.azure.net/
+    certificates:
+      - name: corp-root-ca
+      - name: partner-root-ca
+        version: 3f2b6c9d0e1a4b7c8d9e0f1a2b3c4d5e
+    tenantID: 11111111-1111-1111-1111-111111111111
+    clientID: 22222222-2222-2222-2222-222222222222
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: KeyManagementProvider
+metadata:
+  name: kmp-akv-tsa
+spec:
+  type: azurekeyvault
+  parameters:
+    vaultURI: https://myvault.vault.azure.net
+    certificates: |
+      array:
+      - |
+        certificateName: tsa-root
+    tenantID: 11111111-1111-1111-1111-111111111111
+    clientID: 22222222-2222-2222-2222-222222222222
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: Verifier
+metadata:
+  name: verifier-notation
+spec:
+  name: notation
+  artifactTypes: application/vnd.cncf.notary.signature
+  parameters:
+    verificationCertStores:
+      ca:
+        ca-certs:
+          - kmp-akv-ca
+      tsa:
+        tsa-certs:
+          - kmp-akv-tsa
+    trustPolicyDoc:
+      version: "1.0"
+      trustPolicies:
+        - name: prod
+          registryScopes:
+            - MyRegistry.azurecr.io/app
+            - myregistry.azurecr.io/api
+          signatureVerification:
+            level: strict
+          trustStores:
+            - ca:ca-certs
+            - tsa:tsa-certs
+          trustedIdentities:
+            - "x509.subject: C=US, ST=WA, O=Contoso, CN=release.contoso.com"
+        - name: partner
+          registryScopes:
+            - partnerregistry.azurecr.io/vendor/app
+          signatureVerification:
+            level: strict
+          trustStores:
+            - ca:ca-certs
+            - tsa:tsa-certs
+          trustedIdentities:
+            - "x509.subject: C=US, ST=WA, O=Contoso, CN=release.contoso.com"
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: Store
+metadata:
+  name: store-oras
+spec:
+  name: oras
+  parameters:
+    authProvider:
+      name: azureWorkloadIdentity
+      clientID: 22222222-2222-2222-2222-222222222222
+    cacheEnabled: true
+    capacity: 100
+    keyNumber: 10000
+    ttl: 10
+---
+apiVersion: config.ratify.deislabs.io/v1beta1
+kind: Policy
+metadata:
+  name: ratify-policy
+spec:
+  type: config-policy
+  parameters:
+    artifactVerificationPolicies:
+      application/vnd.cncf.notary.signature: any

@@ -52,6 +52,46 @@ ratify-convert --from-cluster --apply --dry-run
 | `--scope` | Fallback scopes when none can be derived from verifiers |
 | `--concurrency` | `Executor.spec.concurrency` (0 = v2 default) |
 | `--name` | `metadata.name` for generated executors |
+| `--format` | `executor` (default, v2 Executor YAML) or `policy-params` (AKS Image Integrity V2 policy parameters JSON) |
+| `--identity-resource-id` | `policy-params`: UAMI resource ID to use for `identityResourceId` |
+| `--lookup-identity` | `policy-params`: resolve the v1 client ID to a UAMI resource ID via `az identity list` (current subscription) |
+| `--excluded-namespaces` | `policy-params`: override `excludedNamespaces` (default `kube-system,gatekeeper-system`) |
+
+### AKS Image Integrity V2 policy parameters
+
+`--format policy-params` emits a **single JSON** Azure Policy assignment parameters
+file for the `AKS-NotarySignatureVerification` verification policy, ready for
+`az policy assignment create --params @parameters.json`:
+
+```bash
+ratify-convert --from-cluster --format policy-params --lookup-identity -o parameters.json
+ratify-convert -f ./gitops/ratify --format policy-params \
+  --identity-resource-id /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<uami> \
+  -o parameters.json
+```
+
+| Parameter | Derived from |
+|---|---|
+| `effect` | Always `Audit`; switch to `Deny` yourself after comparing V1 and V2 results |
+| `namespaces` | `[]` for cluster-scoped v1 CRs, otherwise the namespaces of `Namespaced*` CRs |
+| `excludedNamespaces` | Policy default, or `--excluded-namespaces` |
+| `scopes` | Notation `trustPolicies[].registryScopes` (registry host lowercased, sorted, de-duplicated) |
+| `certificates` | `azurekeyvault` KMPs / CertificateStores referenced by `trustStores`, grouped by type (`ca`, `signingAuthority`, `tsa`) |
+| `trustedIdentities` | Notation `trustPolicies[].trustedIdentities` |
+| `identityResourceId` | KMP `clientID` / store `authProvider.clientID`, resolved via `--identity-resource-id` or `--lookup-identity`; otherwise a placeholder marked `NeedsReview` |
+
+A migration report is written to stderr, classifying every v1 CR as `Migrated`,
+`NeedsReview`, `Unsupported` or `Dropped`. Notably:
+
+- `NeedsReview`: non-`strict` verification levels, `override`, `verifyTimestamp: afterCertExpiry`,
+  stores without auth, or different client IDs for KMP and store (V2 uses one identity).
+- `Unsupported`: `registryScopes: "*"`, `level: skip`, inline / non-AKV certificates,
+  cosign or other verifiers, rego policies, non-Azure store auth, several Key Vaults for one
+  certificate type.
+
+Trust policies are only merged into one assignment when they share the same trust
+stores, trusted identities and namespaces; otherwise the tool fails rather than
+widen trust. The command exits non-zero if anything is `Unsupported`.
 
 
 ## Mapping summary
